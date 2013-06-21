@@ -1,0 +1,18 @@
+; $Id: uc_payu.info,v 1.0 2013/06/21 16:20:10 duke Exp $
+name = PayU
+description = PayU payment gateway for UberCart.
+package = "Ubercart - payment"
+core = 6.x
+configure = admin/store/settings/cart
+
+dependencies[] = uc_payment
+dependencies[] = uc_order
+
+files[] = uc_payu.install
+files[] = uc_payu.module
+
+version = "6.x-1.0-rc1"
+core = "6.x"
+project = "uc_payu"
+datestamp = "1346314163"
+

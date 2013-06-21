@@ -1,0 +1,448 @@
+<?php
+
+/**
+ * @file
+ * Module for work with service payu. Module uc_payu add in ubercart new type payment.
+ */
+if (!defined(' __DIR__')) define(' __DIR__', dirname(__FILE__));
+
+if( isset( $_GET["PayUTesting"] ) &&  $_GET["PayUTesting"] == 1 )
+{
+  ini_set('display_errors', true);
+  error_reporting(E_ALL);
+}
+
+include_once( __DIR__. '/class/payu.cls.php' );
+
+/**
+ * Implements hook_permisson().
+ */
+function uc_payu_permission() {
+  return array(
+    'administer uc_payu' => array(
+      'title' => t('Administer PayU Payment Gateway'),
+      'description' => t('Change admin settings'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function uc_payu_menu() {
+  $items = array();
+
+  $items['uc_payu/ipn_url'] = array(
+    'title' => 'Internal Data',
+    'page callback' => 'uc_payu_ipn',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+  $items['uc_payu/back_ref'] = array(
+    'title' => 'PayU processing',
+    'page callback' => 'uc_payu_back_ref',
+    'access callback' => TRUE,
+    'type' => MENU_CALLBACK,
+  );
+
+  $items['admin/store/settings/payu'] = array(
+    'title' => 'PayU',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('uc_payu_list'),
+    'access arguments' => array('administer uc_payu'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_uc_payment_method().
+ */
+function uc_payu_payment_method() {
+  $methods = array();
+  $methods['payu'] = array(
+    'id' => 'payu',
+    'name' => t('PayU'),
+    'title' => theme('uc_payu_payment_method_title'),
+    'desc' => t('Redirect to payu to pay by.'),
+    'callback' => 'uc_payment_method_payu',
+    'weight' => 4,
+    'checkout' => FALSE,
+    'no_gateway' => TRUE,
+  );
+  return $methods;
+}
+
+#--------------------------------------------------------------------------------------------------
+#==================================================================================================
+#-------------------OK-----------------------------------------------------------------------------
+
+function uc_payment_method_payu($op, &$order, $form = NULL, &$form_state = NULL) {
+ }
+
+/**
+ * Callback for PAYU payment page settings
+ */
+function uc_payu_list($form /*, &$form_state */) {
+
+  $form = array();
+  $curType = array('UAH' => 'Гривны', 'RUB' => 'Рубли');
+  $country = array('https://secure.payu.ua/order/lu.php' => 'Украина', 'https://secure.payu.ru/order/lu.php' => 'Россия');
+  $languages = array('RU' => 'Русский', 'EN' => 'Английский');
+  $debug = array('1' => 'Включен', '0' => 'Выключен');
+
+  $data = array();
+  if (count($curType)) {
+
+
+    $form['payu_merchant_id'] = array(
+        '#type' => 'textfield', 
+        '#title' => t('Merchant ID'), 
+        '#default_value' => variable_get('payu_merchant_id', ''),
+        '#size' => 40, 
+        '#maxlength' => 100, 
+        '#required' => TRUE
+      );
+
+    $form['payu_secret_key'] = array(
+      '#type' => 'textfield', 
+      '#title' => t('Secret key'), 
+      '#default_value' => variable_get('payu_secret_key', ''),
+      '#size' => 40, 
+      '#maxlength' => 100, 
+      '#required' => TRUE
+    );
+
+    $form['payu_debug_mode'] = array(
+      '#type' => 'select', 
+      '#title' => t('Debug mode'), 
+      '#default_value' => variable_get('payu_debug_mode', '1'),
+      '#options' => $debug,
+      '#required' => TRUE
+    );
+
+    $form['payu_lu_url'] = array(
+      '#type' => 'select', 
+      '#title' => t('Live update url'), 
+      '#description' => t("Please, select your country."),
+      '#default_value' => variable_get('payu_lu_url', ''),
+      '#options' => $country,
+      '#required' => TRUE
+    );
+
+    $form['payu_currency'] = array(
+       '#type' => 'select',
+        '#title' => t('Currency'),
+        '#default_value' => variable_get('payu_currency', 'UAH'),
+        '#options' => $curType,
+        '#description' => t("Please, select currency."),
+        '#required' => TRUE,
+    );
+    $form['payu_back_ref'] = array(
+      '#type' => 'textfield', 
+      '#title' => t('Back refference'), 
+      '#default_value' => variable_get('payu_back_ref', ''),
+      '#description' => t("You can use http://{domain}/uc_payu/back_ref"),
+      '#size' => 60, 
+      '#maxlength' => 255, 
+      '#required' => FALSE
+    );
+    $form['payu_vat'] = array(
+      '#type' => 'textfield', 
+      '#title' => t('VAT'), 
+      '#default_value' => variable_get('payu_vat', '0'),
+      '#description' => t("Default value - 0 "),
+      '#size' => 40, 
+      '#maxlength' => 3, 
+      '#required' => true
+    );
+    $form['payu_language'] = array(
+      '#type' => 'select', 
+      '#title' => t('LANGUAGE'), 
+      '#default_value' => variable_get('payu_language', 'RU'),
+      '#description' => t("Choose language of payment page"),
+      '#options' => $languages,
+      '#required' => FALSE
+    );
+      $form['submit'] = array(
+        '#type' => 'submit',
+        '#value' => t('Submit settings'),
+      );
+  }
+  else {
+    drupal_set_message(t('There are no available currencies. Please delete some of them.'), 'warning');
+  }
+
+  return $form;
+}
+
+
+ function uc_payu_list_submit($form, &$form_state) {
+  $data = array( "payu_merchant_id","payu_secret_key","payu_debug_mode","payu_lu_url","payu_currency","payu_back_ref","payu_vat","payu_language");
+
+    foreach ( $data as $v )
+    {
+      variable_set($v, $form_state['values'][$v]);
+    }
+
+  drupal_set_message(t('You successfully saved'));
+}
+
+
+#--------------------OK----------------------------------------------------------------------------
+#==================================================================================================
+#--------------------------------------------------------------------------------------------------
+
+
+
+/**
+ * Implements hook_theme().
+ */
+
+function uc_payu_theme($existing, $type, $theme, $path) {
+  return array(
+    'uc_payu_payment_method_title' => array(
+      'variables' => array(),
+  ));
+}
+
+
+/**
+ * Returns HTML for payment method title
+ *
+ * @ingroup themeable
+ */
+function theme_uc_payu_payment_method_title() {
+  $path = base_path() . drupal_get_path('module', 'uc_payu') . '/images/payu.png';
+  $title = '<img src="'.$path.'" alt="PayU" style="width:50px; margin-right:5px;" class="uc-credit-cctype" />';
+  $title .= t('PayU');
+  $title .= '<br />';
+  $attr = array(
+    'path' => $path,
+    'alt' => 'PayU Payment Gateway',
+    'attributes' => array('class' => 'payu-title-image')
+  );
+  $title .= theme_image($attr);
+  return $title;
+}
+
+
+
+
+#--------------------------------------------------------------------------------------------------
+#==================================================================================================
+#--------------------------------------------------------------------------------------------------
+
+
+
+
+
+/**
+ * Implements hook_form_alter().
+ */
+function uc_payu_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'uc_cart_checkout_review_form' && ($order_id = intval($_SESSION['cart_order'])) > 0) {
+
+    $order = uc_order_load($order_id);
+ 
+
+    if ($order->payment_method == 'payu') {
+      // TODO
+      // Add custom review table
+      unset($form['submit']);
+      $form['#prefix'] = '<table ><tr><td>';
+      $form['#suffix'] = '</td><td>' . drupal_get_form('uc_payu_submit_form', $order) . '</td></tr></table>';
+    }
+ // }
+  }
+}
+
+
+
+#--------------------------------------------------------------------------------------------------
+#==================================================================================================
+#--------------------------------------------------------------------------------------------------
+
+function getPayUSettings()
+{
+  return db_select('uc_payu_rates', 'ulr')
+  ->fields('ulr', array('merchant_id', 'secret_key', 'debug_mode', 'lu_url', 'currency', 'back_ref', 'vat', 'language'))
+  ->execute()
+  ->fetchObject();
+}
+
+
+/**
+ * Add new button with payu settings
+ */
+function uc_payu_submit_form($form, $order) {
+  global $base_url;
+  
+foreach ($order->line_items as $item) {
+    if ($item['type'] == 'shipping') {
+      $shipping = $item['amount'];
+    }
+  }
+
+
+$option  = array( 
+          'merchant' => variable_get('payu_merchant_id', ""),
+          'secretkey' => variable_get('payu_secret_key', ""), 
+          'debug' => variable_get('payu_debug_mode', "") );
+
+$forSend = array (
+          'ORDER_REF' => $order->order_id, # Uniqe order 
+          'ORDER_SHIPPING' => $shipping, # Shipping cost
+          'PRICES_CURRENCY' => $order->currency,  # Currency
+          'LANGUAGE' => variable_get('payu_language', ""),
+          'BILL_FNAME' => $order->delivery_first_name,
+          'BILL_LNAME' => $order->delivery_last_name,
+          'BILL_EMAIL' => $order->primary_email,
+          'BILL_PHONE' => $order->delivery_phone,
+          'BILL_ADDRESS' => $order->delivery_street1,
+          'BILL_ADDRESS2' => $order->delivery_street2,
+          'BILL_ZIPCODE' => $order->delivery_postal_code,
+          'BILL_CITY' => $order->delivery_city,
+          'BILL_COUNTRYCODE' => $order->delivery_country,
+
+          'DELIVERY_FNAME' => $order->billing_first_name,
+          'DELIVERY_LNAME' => $order->billing_last_name,
+          'DELIVERY_EMAIL' => $order->primary_email,
+          'DELIVERY_PHONE' => $order->billing_phone,
+          'DELIVERY_ADDRESS' => $order->billing_street1,
+          'DELIVERY_ADDRESS2' => $order->billing_street2,
+          'DELIVERY_ZIPCODE' => $order->billing_postal_code,
+          'DELIVERY_CITY' => $order->billing_city,
+          'DELIVERY_COUNTRYCODE' => $order->billing_country,
+          );
+
+
+if ( variable_get('payu_back_ref', "") !== "" ) $forSend['BACK_REF'] = variable_get('payu_back_ref', "");
+
+foreach ( $forSend as $k => $v )
+{
+  if ($v === "") unset($forSend[$k]);
+}
+
+foreach ($order->products as $value) {
+    $forSend['ORDER_PNAME'][] = $value->title; 
+    $forSend['ORDER_PCODE'][] = $value->order_product_id; 
+    $forSend['ORDER_PINFO'][] = ""; #$value[]; 
+    $forSend['ORDER_PRICE'][] = $value->price; 
+    $forSend['ORDER_QTY'][] = $value->qty; 
+    $forSend['ORDER_VAT'][] = variable_get('payu_vat', "");
+    
+  }
+
+
+$pay = PayU::getInst()->setOptions( $option )->setData( $forSend )->LU();
+
+ $form = genereteForm( $pay->preFormData, variable_get('payu_lu_url', "" ));
+
+
+  return $form;
+}
+
+function genereteForm( $data, $LU )
+  { 
+    $form['#action'] = $LU;
+    foreach ( $data as $k => $v ) {
+      if ( !is_array( $v ) ) {
+        $form[$k] = array(
+          '#type' => 'hidden',
+          '#value' => $v,
+        );
+      }
+      else 
+      {
+        $i = 0;
+        foreach ($v as $val)
+        {
+          $form[$k.'['.$i++.']'] = array(
+          '#type' => 'hidden',
+          '#value' => $val,
+          );
+        }
+      }
+    }
+  
+$form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Pay'),
+  );  
+    return $form;
+  } 
+
+
+#--------------------------------------------------------------------------------------------------
+#==================================================================================================
+#--------------------------------------------------------------------------------------------------
+
+
+
+/**
+ * Callback for payu
+ */
+function uc_payu_ipn() {
+
+$option  = array( 
+          'merchant' => variable_get('payu_merchant_id', ""),
+          'secretkey' => variable_get('payu_secret_key', ""), 
+          'debug' => variable_get('payu_debug_mode', "") );
+
+
+
+
+$payansewer = PayU::getInst()->setOptions( $option )->IPN();
+$respons = $_POST;
+
+echo $payansewer;
+
+
+uc_order_comment_save($respons['REFNOEXT'], 0, "Order status : ". $respons['ORDERSTATUS'], 'admin');
+uc_payment_enter($respons['REFNOEXT'], 'payu', $respons['IPN_TOTALGENERAL'], $respons['REFNO'], NULL, "Order status : ". $respons['ORDERSTATUS']);
+ uc_cart_complete_sale($respons['REFNOEXT']);
+ uc_order_comment_save($respons['REFNOEXT'], 0, t('A payment has been accepted.'), 'admin');
+  exit();
+}
+
+
+
+#--------------------------------------------------------------------------------------------------
+#==================================================================================================
+#--------------------------------------------------------------------------------------------------
+
+
+
+/**
+ * Callback function with result.
+ */
+function uc_payu_back_ref() {
+
+$option  = array( 
+          'merchant' => variable_get('payu_merchant_id', ""),
+          'secretkey' => variable_get('payu_secret_key', ""), 
+          'debug' => variable_get('payu_debug_mode', "") );
+
+
+
+$pay = PayU::getInst()->setOptions( $option )->checkBackRef("http", $payu->back_ref);
+if ( !$pay ) die("<!-- not real request -->");
+
+ if ($_GET['result'] === '0') {
+          $_SESSION['uc_checkout'][$_SESSION['cart_order']]['do_complete'] = TRUE;
+          drupal_goto('cart/checkout/complete');
+        }
+        else {
+          drupal_set_message(t("Your payment has been declined.
+                     Maybe internet payments on your card is prohibited.
+                     Or you have exceeded the card limit.
+                     Ways of solving problem:
+                     - unlock internet purchasing
+                     - increase card limit
+                     - try again in 1 hour
+                     - try another card"), 'warning');
+          drupal_goto('cart');
+        }
+ 
+}

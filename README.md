@@ -1,4 +1,4 @@
-#(For PayU Ukraine and Russian ONLY)
+#(For PayU Russian and Ukraine Russian ONLY)
 ------
 
 !! Внимание !!
